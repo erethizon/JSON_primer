@@ -1,0 +1,251 @@
+---
+title: "JSON primer"
+author: "Erika"
+date: "2/26/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+## Introduction
+
+Data from the web are often encoded as JSON format (**j**ava**s**cript **o**bject **n**otation).This is true for the data we obtain from the Zooniverse.  Because data stored in JSON format come with many different fields nested in a single column, it is tricky to parse.
+
+This `.Rmd` file is designed as a guide to introduce JSON format and how to deal with it in R.  The primer does NOT include how to pull JSON data from a website directly, but assumes you have a text file of some type with JSON data inside of it.
+
+## The JSON format
+JSON is a universal text format for moving data between webpages (and elsewhere).  It is built on two key ideas:
+
+1. Data are organized as collections of **key:value** pairs.  For example, a key might be "name" with the value "Erika". 
+
+2. Data are organized into an ordered list of values.  In R, this grouping is realized as an array, vector, or list.
+
+JSON **objects** are enclosed within `{squarebraces}`. Each **key** is a string of text, and the associated **value** is separated from the key by a `:` (colon). Data items are separated from one another by commas, and the key and any non-numeric value are surrounded by double quotes. Here is an example of a very basic JSON object:
+
+>`{"name":"Erika", "age": 52, "shoe size": 7.5}`
+
+In this case, the single object contains three key:value pairs.
+
+The **value** associated with any key can be of several different data types:
+
+ * a string e.g. `"Erika"`
+ * a number e.g. `52`
+ * a JSON object (this is where it is going to get tricky...), e.g.`{"name":"Erika", "age": 52, "shoe size": 7.5}`
+ * an array (this is where is is going to get **really, really** tricky, see below)
+ * a boolean e.g. `{"sale":true}`
+ * null e.g. `{"name": null}`
+ 
+JSON **arrays** are enclosed within `[brackets]` and are conceptually similar to the idea of a list or vector in R. Here is a simple array of dog names:
+
+```json
+{
+"dog names": ["Tex", "Tulip", "Gus"]
+}
+```
+
+
+They are groupings of several objects together.  Here is an example of an object storing data about several dogs that consists of **one single object** with **one array** with data on **three** dogs:
+
+```json
+{"dogs":[
+  {"name": "Tex", "breed": "labrador", "color": "yellow" },
+  {"name": "Tulip", "breed": "labrador", "color": "black"},  
+  {"name": "Gus", "breed": "labrador", "color": "black"}
+  ]}
+```
+## Why do we care?
+In our zooniverse data, people who classify images for us may complete several tasks, and each separate task may have different properties.  For example, one task might be to identify an animal to a species and note its behavior, and another task might have the person circle the animal's head (we don't actually have that task, but just to get the idea across).  Each task might have several subtasks.  Let's use our image classfication as an example.
+
+For each set of images, a person is tasked with the following:
+
+1. Identifying the species in the photo (or indicating nothing is there)
+2. Identifying the number of individuals of the species
+3. Identifying whether or not young are present
+4. Identifying any behavior(s) exhibited by any animal in the image
+5. Identifying whether or not it is snowing/raining
+6. Identifying the snow depth
+7. For deer, determining if antlers are present.
+
+These questions can be divided into those with a single possible categorical answer:  
+ * species  
+ * number present  
+ * young present (yes/no)  
+ * precipitation (yes/no)  
+ * snow depth  
+ * antlers present (yes/no)  
+
+And those with more than one possible answer:  
+* What behavior(s) do you observe?
+
+Now let's think about what this might mean in terms of how the computer stores the classifications.
+
+Let's just imagine a single "row" of data - a single set of 3 images that we call an "event":
+
+In response to species, we could have a JSON object like this:
+
+>`{"choice":"porcupine"}`  
+
+And for Number present we might see:
+
+>`{"number present": "2 to 3"}`  
+
+By this logic, let's get the complete list of objects:
+
+```json
+{"choice":"porcupine"}
+{"number present": "2 to 3"}
+{"young present": "No"} 
+{"precipitation": "yes"}  
+{"snow depth": "No snow bare ground"}
+{"antlers present":NULL}
+```
+How do we associate ALL of this with the single observation?  With a JSON object within which is embedded an array of objects:
+
+```json
+{"event":[
+{"choice":"porcupine"},
+{"number present": "2 to 3"},
+{"young present": "No"}, 
+{"precipitation": "yes"},  
+{"snow depth": "No snow bare ground"},
+{"antlers present":NULL},
+]}
+```
+
+And we also have to deal with the question for which there can be more than one answer. How might we do that?
+
+```json
+{"behaviors":["Alert", "Walking/Running", "Foraging]}
+```
+And remember, this is still information for a single event. And for a single task for that event.  So, in total, the JSON would look something like this:
+```json
+{"task":"T0",  
+  "event":
+    [
+      {"choice":"porcupine",
+      "answers":
+        {"number present": "2 to 3",
+        "young present": "No", 
+        "precipitation": "yes",
+        "snow depth": "No snow bare ground",
+        "antlers present":NULL,
+        "behaviors":["Alert", "Walking/Running", "Foraging"]
+        }
+      }
+    ]
+}
+```
+So, in this example, for a single event, we have a JSON object that includes two elements, the task and the event.  The event is structured as a key with an array of values.  The data we want to extract is nested very deeply!
+
+## Real data
+Let's take a look at some real zooniverse data to see what the output looks like.
+Here we have data from workflow 1.1, version 6.5 from the NoCoWild project.  
+I'm just putting the json data from a single row:
+```json
+[{"task":"T0","value":[{"choice":"DEERWHITETAILED","answers":{"HOWMANY":"1","YOUNGPRESENT":"NO","ANTLERSPRESENT":"NO","WHATBEHAVIORSDOYOUSEE":["ALERT"],"ESTIMATEOFSNOWDEPTHSEETUTORIAL":"NOSNOWBAREGROUND","ISITACTIVELYRAININGORSNOWINGINTHEPICTURE":"NO"},"filters":{}}]}]
+```
+
+**Ugly, hunh?!**Let's write it out with some indents to make it more clear:
+```json
+[
+  {"task":"T0",
+    "value":
+      [
+        {"choice":"DEERWHITETAILED",
+        "answers":
+         {"HOWMANY":"1",
+         "YOUNGPRESENT":"NO",
+         "ANTLERSPRESENT":"NO",
+          "WHATBEHAVIORSDOYOUSEE":["ALERT"],
+         "ESTIMATEOFSNOWDEPTHSEETUTORIAL":"NOSNOWBAREGROUND",
+         "ISITACTIVELYRAININGORSNOWINGINTHEPICTURE":"NO"
+         },
+        "filters":{}
+        }
+      ]
+  }
+]
+```
+So how do we make sense of this?  We need some steps to *flatten* our JSON data so that each major element in the JSON data can be extracted into its own column. We'll take a look below.
+
+## How do we work with JSON data in R?
+There are, at the time of this writing, four packages that deal with JSON data explicitly:  
+ * `tidyjson`  
+ * `jsonlite`  
+ * `JSONIO`  
+ * `RJSON`
+ 
+We will primarily use `tidyjson` and `jsonlite` to work with our data.
+
+### Create some data to play with
+Let's look at a very small data set!
+
+```{r}
+library(readr)
+jdata <- read_csv("Data/test_JSON_annotations.csv")
+```
+And take a look
+
+```{r}
+View(jdata)
+```
+This data set, extracted from a real zooniverse download but with several columns and rows deleted for simplicity,has two columns: a user id and the "annotations" JSON column with actual game camera data from 4 events.
+ 
+ Let's see if we can "parse" these data.
+
+### Parse the data
+Step 1. Load packages
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(purrr) #adds tools for functional programming
+```
+Step 2. "Unpack" the annotations column into a list
+
+method 1:
+```{r}
+annotations1<-lapply(jdata$annotations, fromJSON)
+```
+This yields a single big ugly list with an element for each json object, but looses the information from the user_name column, which we need. Take a look:
+```{r}
+str(annotations1)
+```
+There are lists within lists!  Yikes!
+
+Now let's try to do it without losing the information about the users.
+
+method 2:
+```{r}
+annotations2<-jdata %>% mutate(
+  annotation_data = map(annotations, fromJSON)
+  )
+```
+This is more like it, with the annotations column alone standing as a list.
+
+
+
+So let's try to move everything to the "top" list level.
+
+Step 3. Move everything to the "top" list level
+```{r}
+data_raw<-enframe(unlist(annotations))
+```
+Because we are using a tidyverse package to do this step (the `enframe` and `unlist` functions), we get our data out as a 2-dimensional data frame (**WAY BETTER!!!!**).  Let's take a look at the data.
+```{r}
+data_raw
+```
+Note that all of the column names that include "dot" (e.g. value.choice) would indicate a would-have-been-nested variable!  Now we need to create separate columns for each (this is the real *flattening* part).
+
+Step 4. Separate the two columns of data into a column for each variable embedded in "name"
+```{r}
+data_separated <- data_raw %>% separate(name, into = c(paste0("x", 1:3)))
+```
+Note that in this example, we are telling the computer to split the "name" column into three new columns , called "x1", "x2" and "x3".  We can tell we need three columns by looking at data_raw and seeing that some of the variables in "name" have three items, each separated by ".", for example value.ANSWERS.HOWMANY. We could automate that step, and instructions for doing so are included at the end of this document as **Appendix 1**.
+
+Now we need to transpose the data so that there is a column for each variable in data_separated$value.  To do this, we'll use the `pivot_wider` tidyr function (which replaces spread from reshape2 package).
+
+Step 5. Spread the data across more columns
+```{r}
+my_annotations<-pivot_wider(data_separated,names_from = c(x2,x3), values_from = value, )
+```
+
+

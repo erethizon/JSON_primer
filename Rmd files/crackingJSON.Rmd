@@ -1,0 +1,307 @@
+---
+title: "Cracking JSON"
+output: html_notebook
+---
+## Introduction
+Yesterday I managed to get the JSON data extracted from both the annotations and subject_data columns in our zooniverse data, but when I went to put it all together, none of the code would run.
+
+So, here I'm going to try and step through it all and see what the issue might be.
+
+Some ideas:
+ 1. How data are brought into R Studio (read.csv vs. readr package)
+ 2. Package versions (tidyjson)
+ 3. Package conflicts
+ 
+ 
+I will test each of these ideas with the annotation test data set.  If I can get that to work, then I'll try with the larger 1500 row data set.
+## Keeping track
+Here's what we need to do: check each of the following permutations:
+
+| **Package conflicts** | **read.csv** | read.csv | readr | readr  |
+|-------------------|----------|----------|-------|--------|
+| tidyjson first    |   CRAN   |  github  |  CRAN | github |
+| tidyjson second   |   CRAN   |  github  |  CRAN | github |
+
+To keep track of the outcomes, I'm going to build a dataframe for the results:
+
+```{r}
+rm(list =ls())
+implementation<-c(1:8)
+entry_method<-c(rep(c("read.csv","readr"), 4))
+package<-c(rep(c("tidyjson first", "tidyjson first","tidyjson second", "tidyjson second"),2 ))
+pack_source<-c(rep("CRAN", 4),rep("github", 4))
+outcomes<-cbind(implementation, entry_method, package, pack_source)
+outcomes<-as.data.frame(outcomes)
+#now result column
+outcomes$result<-"needs testing"
+```
+As I conduct each experiment, I'll update the result column.
+
+## Data entry method
+I have two ways of loading data: manually using the R studio `Import Dataset` gui, or by writing code directly.  I'll save each dataset with a different name:
+
+### readr
+
+First using the gui (I saved the code from that call.  Note use of `read_csv`)
+```{r}
+library(readr)
+df_readr <- read_csv("Data/test_JSON_annotations.csv")
+```
+### read.csv
+And now with read.csv
+```{r}
+df_read_csv<-read.csv("Data/test_JSON_annotations.csv", stringsAsFactors = F)
+```
+### compare the two
+
+Let's compare them
+```{r}
+str(df_read_csv)
+```
+
+```{r}
+str(df_readr)
+```
+Notice that with readr we get the 
+  `cols(user_name = col_character(), annotations =col_character())`
+ 
+Which we do NOT get from read.csv
+
+Could this be the difference? Let's see!
+
+## Package versions and conflicts
+Get the tidyjson package from CRAN:
+### tidyjson from CRAN
+First, let's install the tidyverse package fresh from CRAN. Then we'll adjust the order in which the packages are turned on.
+
+```{r}
+install.packages("tidyjson")
+```
+####tidyjson before jsonlite
+Sometimes, one package masks elements from another package, and order in which packages are turned on can make a difference.  Let's try turning tidyjson on before jsonlite and running our code with our two different data frames.
+
+```{r}
+library(tidyjson)
+
+library(purrr)
+library(dplyr)
+library(jsonlite)
+```
+##### Now try the code with the readr dataframe
+
+```{r}
+flat_to_task <- df_readr %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations", flatten = TRUE) %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+This is the error we developed the other day:
+> `Error: Can't coerce element 1 from a list to a character`
+
+So, the combination readr, CRAN, tidyjson first yields error
+Update that in the results
+
+```{r}
+outcomes$result[2] <- "can't coerce element 1..."
+```
+##### Try with the read.csv dataframe
+```{r}
+flat_to_task <- df_read_csv %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations", flatten = TRUE) %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+This is the error we developed the other day:
+> `Error: Can't coerce element 1 from a list to a character`
+
+So, the combination read.csv, CRAN, tidyjson first yields error
+
+Update that in the results
+```{r}
+outcomes$result[1] <- "can't coerce element 1..."
+```
+
+#### jsonlite before tidyjson
+Now let's reverse the order of the packages.  First need to turn them off and restart R without losing the workspace
+
+Turn off the packages:
+```{r}
+detach("package:tidyjson", unload = TRUE)
+detach("package:jsonlite", unload = TRUE)
+```
+And then reload them in the opposite order, with jsonlite first
+```{r}
+library(jsonlite)
+library(tidyjson)
+```
+Now let's try each version of the data frame again:
+##### Now try the code with the readr dataframe
+
+```{r}
+flat_to_task <- df_readr %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations", flatten = TRUE) %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+This is the error we developed the other day:
+> `Error: Can't coerce element 1 from a list to a character`
+
+So, the combination readr, CRAN, tidyjson second yields error
+Update that in the results
+
+```{r}
+outcomes$result[4] <- "can't coerce element 1..."
+```
+##### Try with the read.csv dataframe
+```{r}
+flat_to_task <- df_read_csv %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations", flatten = T) %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+This is the error we developed the other day:
+> `Error: Can't coerce element 1 from a list to a character`
+
+So, the combination read.csv, CRAN, tidyjson second yields error
+
+Update that in the results
+```{r}
+outcomes$result[3] <- "can't coerce element 1..."
+```
+
+### tidyjson from github
+Ok.  So, we've tested the four combinations in which we load the tidyjson package from CRAN. Now let's try the four in which we load the tidyjson package from github.  Repeat basically all of the above, but with tidyjson package from a different place.
+ 
+Let's clean things up by first turning off all of the packages we've installed:
+
+Turn off the packages:
+```{r}
+detach("package:tidyjson", unload = TRUE)
+detach("package:jsonlite", unload = TRUE)
+detach("package:purrr", unload = TRUE)
+detach("package:dplyr", unload = TRUE)
+```
+And now install tidyjson from github:
+```{r}
+library(githubinstall)
+githubinstall("tidyjson")
+```
+#### Tidyjson loaded first
+```{r}
+library(tidyjson)
+library(jsonlite)
+library(purrr)
+library(dplyr)
+```
+##### Try with the readr dataframe
+```{r}
+flat_to_task <- df_readr %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations") %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+Same error message!
+Log the result
+```{r}
+outcomes$result[6]<-"can't coerce element 1..."
+```
+
+##### Try with the read.csv dataframe
+```{r}
+flat_to_task <- df_read_csv %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations") %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+AARRGGGHHHH...Same error.
+
+So, read.csv, tidyjson first, github:
+```{r}
+outcomes$result[5]<-"can't coerce element 1..."
+```
+Let's hope that this next one works!
+#### Tidyjson loaded second
+Detach the two packages:
+```{r}
+detach("package:tidyjson", unload = TRUE)
+detach("package:jsonlite", unload = TRUE)
+```
+Since R won't unload the package, I'm going to restart, but to enable me to keep track properly of what worked and what hasn't worked thus far, let me add this code for when I reboot:
+
+```{r}
+fail<-"can't coerce element 1..."
+outcomes$result[1:6]<-fail
+```
+
+Restart R, load tidyjson from github, and load jsonlite before tidyjson...
+
+
+Now re-load 'em
+```{r}
+library(jsonlite)
+library(tidyjson)
+library(dplyr)
+library(purrr)
+```
+
+##### use readr
+```{r}
+flat_to_task <- df_readr %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations") %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+Ok - didn't work. So, readr,github, tidyjson second is a fail.
+```{r}
+outcomes$result[8] <- fail
+```
+So, it's next or nothing!
+##### use read.csv
+```{r}
+flat_to_task <- df_read_csv %>%
+  select(., user_name, annotations) %>%
+  as.tbl_json(json.column = "annotations") %>%
+  gather_array(column.name = "task_index") %>%
+  spread_values(
+    task = jstring("task"), 
+    task_label = jstring("task_label"),
+    value = jstring("value"))
+```
+DAMN!!!!!Nothing has worked!!!!!
+
+```{r}
+outcomes$result[7]<-fail
+View(outcomes)
+```
+## Now what? 
+Perhaps it is another package, such as dplyr?
+
+
